@@ -73,7 +73,6 @@ for i, row in selected_events.iterrows():
                     for num in range(low, up+1):
                         temp.append(num)
                     index_list_32.append(temp)
-                
                 else:
                     index_list_32.append([int(seglist)])   
 
@@ -138,14 +137,11 @@ unique_coordinates = [list(t) for t in set(map(tuple, pt_coord))]
 def create_kml_for_unique_coordinates(unique_coordinates, kml_filename):
     # Create KML object
     kml = simplekml.Kml()
-
     # Create a folder for the points
     folder = kml.newfolder()
-
     # Add points to the KML file
     for i, coordinates in enumerate(unique_coordinates, start=1):
         point = folder.newpoint(name=f'Point {i}', coords=[coordinates])
-
         # Customize the style (optional)
         point.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/pushpin/red-pushpin.png'
 
