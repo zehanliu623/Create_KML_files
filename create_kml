@@ -1,0 +1,157 @@
+import simplekml
+import pyreadr
+import rpy2
+import pyarrow.parquet as pq
+import os, os.path
+from collections import defaultdict
+import json
+import time
+import re
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+
+#####Read rupture, point sources events in UCERF3
+
+### Point sources
+result = pyreadr.read_r('your/path/to/FM31_Pts.rda')
+FM31_Pts = result["FM31_Pts"]
+result = pyreadr.read_r('your/path/to/FM32_Pts.rda')
+FM32_Pts = result["FM32_Pts"]
+### Rupture events
+FM31_Rups = pq.read_table('your/path/to/FM31_Rups.parquet').to_pandas()
+FM32_Rups = pq.read_table('your/path/to/FM32_Rups.parquet').to_pandas()
+### Fault section information
+result = pyreadr.read_r('your/path/to/FM31_Secs.rda')
+FM31_Secs = result["FM31_Secs"]
+result = pyreadr.read_r('your/path/to/FM32_Secs.rda')
+FM32_Secs = result["FM32_Secs"]
+
+            
+### Read your selected events file
+selected_events = pd.read_csv('your/path/to/selected_events.csv', index_col=0)
+
+            
+##### RUPTURE EVENTS
+### Organize scenario indices
+index_list_31 = []
+index_list_32 = []
+for i, row in selected_events.iterrows():
+    #### index fault sources first
+    if not any('-' in s for s in row['EventID']):     
+        if row['EventID'][0:4]=='FM31':
+            scenario_row = FM31_Rups.loc[FM31_Rups['Index'] == row['EventID'][5:]]
+                              
+            for seglist in (row['EventID'][5:].split(',')):
+                if len(seglist.split(':'))>1:
+                    A, B = int(seglist.split(':')[0]), int(seglist.split(':')[1])
+                    up = B
+                    low = A
+                    if A > B:
+                        up = A
+                        low = B
+                    ####index each fault in a multi-fault scenario
+                    temp = []
+                    for num in range(low, up+1):
+                        temp.append(num)
+                    index_list_31.append(temp)
+                else:
+                    index_list_31.append([int(seglist)])
+        else:
+            scenario_row = FM32_Rups.loc[FM32_Rups['Index'] == row['EventID'][5:]]
+            for seglist in (row['EventID'][5:].split(',')):
+                if len(seglist.split(':'))>1:
+                    A, B = int(seglist.split(':')[0]), int(seglist.split(':')[1])
+                    up = B
+                    low = A
+                    if A > B:
+                        up = A
+                        low = B
+                    ####index each fault in a multi-fault scenario
+                    temp = []
+                    for num in range(low, up+1):
+                        temp.append(num)
+                    index_list_32.append(temp)
+                
+                else:
+                    index_list_32.append([int(seglist)])   
+
+### Generate coordinates for scenarios                                                     
+coord_list_31 = []
+coord_list_32 = []
+pattern = re.compile(r'-?\d+\.\d+,-?\d+\.\d+(?=,)')
+for l in index_list_31:
+    temp0 = []
+    for idx in l:
+        temp = []
+        matches = pattern.findall(FM31_Secs.iloc[idx][7])
+        for k in range(len(matches)):
+            first_lon, first_lat = map(float, matches[k].split(','))
+            temp.append((first_lon, first_lat))
+        temp0.extend(temp)
+    coord_list_31.append(temp0) 
+for l in index_list_32:
+    temp0 = []
+    for idx in l:
+        temp = []
+        matches = pattern.findall(FM32_Secs.iloc[idx][7])
+        for k in range(len(matches)):
+            first_lon, first_lat = map(float, matches[k].split(','))
+            temp.append((first_lon, first_lat))
+        temp0.extend(temp)
+    coord_list_32.append(temp0)
+
+###Create kml files for ruptures
+#####Create rupture KML files
+def create_kml_for_polylines(coordinates_list, kml_filename):
+    # Create KML object
+    kml = simplekml.Kml()
+    # Create a folder for the polylines
+    folder = kml.newfolder()
+    # Add polylines to the KML file
+    for i, coordinates in enumerate(coordinates_list, start=1):
+        linestring = folder.newlinestring(name=f'Polyline {i}', coords=coordinates)
+        # Customize the style (optional)
+        linestring.style.linestyle.width = 3
+        linestring.style.linestyle.color = simplekml.Color.blue
+    # Save KML file
+    kml.save(kml_filename)
+                                                                        
+####Specify the diretory you would like to store the kml file
+kml_filename = 'your/path/to/store/rups31.kml'
+kml_filename = 'your/path/to/store/rups32.kml'
+create_kml_for_polylines(coord_list_31, kml_filename)                                                                        
+create_kml_for_polylines(coord_list_32, kml_filename)
+
+
+##### POINT SOURCES EVENTS 
+#####Create point sources KML files
+####Point sources
+pt_coord = []
+for i, row in selected_events.iterrows():
+    if any('-' in s for s in row['EventID']):
+        pt_src_coords = row['EventID'].split('_')[1].split(',')
+        pt_coord.append([float(pt_src_coords[0]), float(pt_src_coords[1])])
+unique_coordinates = [list(t) for t in set(map(tuple, pt_coord))]
+
+def create_kml_for_unique_coordinates(unique_coordinates, kml_filename):
+    # Create KML object
+    kml = simplekml.Kml()
+
+    # Create a folder for the points
+    folder = kml.newfolder()
+
+    # Add points to the KML file
+    for i, coordinates in enumerate(unique_coordinates, start=1):
+        point = folder.newpoint(name=f'Point {i}', coords=[coordinates])
+
+        # Customize the style (optional)
+        point.style.iconstyle.icon.href = 'http://maps.google.com/mapfiles/kml/pushpin/red-pushpin.png'
+
+    # Save KML file
+    kml.save(kml_filename)
+
+####Specify the diretory you would like to store the kml fil                                                                                          
+kml_filename = 'your/path/to/store/pts.kml'
+create_kml_for_unique_coordinates(unique_coordinates, kml_filename)                                                                        
